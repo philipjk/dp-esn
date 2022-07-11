@@ -4,27 +4,29 @@ import matplotlib.pyplot as plt
 import random
 from sklearn.model_selection import ParameterGrid
 from diffprivlib.mechanisms import GaussianAnalytic
+from diffprivlib.models import LinearRegression 
 
 torch.manual_seed(10)
 random.seed(10)
 np.random.seed(10)
 
-dtype = torch.float32
+dtype = torch.float64
 
-DEVICE = torch.device('cuda:3' if torch.cuda.is_available() else 'cpu')
+# DEVICE = torch.device('cuda:3' if torch.cuda.is_available() else 'cpu')
+DEVICE = torch.device('cpu')
 
-sequence_points =  20000
-sequences = 2000
-wave_frequency = torch.tensor(3, dtype=dtype)
+sequence_points =  2000
+sequences = 100
+wave_frequency = torch.tensor(2, dtype=dtype)
 start = torch.tensor(0.) 
 finish = 1*np.pi
 exes = torch.arange(start, finish - 1e-6, step=np.pi/sequence_points, dtype=dtype).to(DEVICE)
 y = torch.sin(wave_frequency*exes)
 ui = exes.view(int(len(exes)*sequences/sequence_points), int(sequence_points/sequences))
-uy = torch.sin(wave_frequency*ui)
+uy = y.view(int(len(exes)*sequences/sequence_points), int(sequence_points/sequences)) 
 T = len(ui)
 
-def make_W(sparsity: float,
+def make_W(sparsity: float, # probability of each element to be zeroed-out
            size: tuple, 
            spectral_radius: float=0,
            range: float=1):
@@ -58,15 +60,15 @@ def make_readouts(sequences: list,
 
 
 
-nx_range =  [300]# [700, 1000, 1200, 1500, 1700, 1900, 2100]
-alpha_range = [0.8, 0.9] # [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9] 
-spars_range = [0.1, 0.3] # alpha_range
-sr_range = [0.8] # alpha_range
+nx_range =  [50]# [700, 1000, 1200, 1500, 1700, 1900, 2100]
+alpha_range = [0.5] # [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9] 
+spars_range = [0.3] # alpha_range
+sr_range = [0.9, 0.99] # alpha_range
 ws_range = [0.1, 0.5]
-beta_range = [0., 1e-7, 1e-5]
+beta_range = [1e-7, 1e-5]
 costs = []
 cost_dict = {}
-eps = 1e5
+eps = 100
 
 param_grid = {'nx': nx_range, 'alpha': alpha_range,
               'sparsity': spars_range, 'sr': sr_range,
@@ -86,10 +88,11 @@ for i, params in enumerate(grid):
     # inv_arg = X@X.T # + beta*torch.eye(X.shape[0])
     # inv = torch.linalg.inv(inv_arg)
 
-    Sa = torch.tensor(Nx*sequence_points/sequences).sqrt()
-    Amech = GaussianAnalytic(epsilon=10, delta=(1/sequences), sensitivity=float(Sa))
-    Sb = torch.tensor((Nx**2)*sequence_points/sequences).sqrt()
-    Bmech = GaussianAnalytic(epsilon=10, delta=(1/sequences), sensitivity=float(Sb))
+    # Sa = torch.tensor(Nx*sequence_points/sequences).sqrt()
+    # Amech = GaussianAnalytic(epsilon=eps, delta=(1/sequences), sensitivity=float(Sa))
+    # Sb = torch.tensor((Nx**2)*sequence_points/sequences).sqrt()
+    # Bmech = GaussianAnalytic(epsilon=eps, delta=(1/sequences), sensitivity=float(Sb))
+    # DPlinreg = LinearRegression(epsilon=eps, bounds_X=(-1, 1), bounds_y=(-1, 1))
 
     ys = y
     # A = (ys@X.T).cpu()
@@ -100,22 +103,32 @@ for i, params in enumerate(grid):
     B_ = B + reg
     # A = A.apply_(Amech.randomise).to(DEVICE)
     # B = B.apply_(Bmech.randomise).to(DEVICE)
+    # DPlinreg.fit(X.T.cpu().numpy(), ys.cpu().numpy())
+
 
     W_ = A@torch.linalg.inv(B_)
     Wp = A@torch.linalg.pinv(B)
     W, res, r, sv = torch.linalg.lstsq(X.T, y)
+    Wlin = torch.linalg.solve(B, A)
+    # Wdp = torch.tensor(DPlinreg.coef_, dtype=dtype, device=DEVICE)
 
     y_pred_ = X.T@W_
 
     y_pred = X.T@W
     y_pred_p = X.T@Wp
+    y_pred_lin = X.T@Wlin
+    # y_pred_dp = X.T@Wdp
     rmse_ = (y_pred_ - y_pred).pow(2).mean().sqrt()
     rmsep = (y_pred_p - y_pred).pow(2).mean().sqrt()
+    rmse_lin = (y_pred_lin - y_pred).pow(2).mean().sqrt()
+    # rmse_dp = (y_pred_dp - y_pred).pow(2).mean().sqrt()
 
     print(f'pred diff with normal solver: {rmse_}')
     print(f'pred diff with pinv solver: {rmsep}')
+    print(f'pred diff with linsolve solver: {rmse_lin}')
+    # print(f'pred diff with dp solver: {rmse_dp}')
 
-    cost = (y_pred_p - y).pow(2).mean()
+    cost = (y_pred - y).pow(2).mean()
     costs.append(cost)
     text = f"""config: nx={params['nx']}, alpha={params['alpha']} 
     sparsity={params['sparsity']}, spectral radius={params['sr']},
@@ -128,15 +141,23 @@ for i, params in enumerate(grid):
     p = xx.T@W
     p_ = xx.T@W_
     pp = xx.T@Wp
+    p_lin= xx.T@Wlin
+    # p_dp = xx.T@Wdp
     plt.figure()
     plt.plot(uy[tryout].cpu(), 'x')
     plt.plot(p.cpu())
-    plt.plot(p_.cpu())
+    # plt.plot(p_.cpu())
     plt.plot(pp.cpu())
+    plt.plot(p_lin.cpu())
+    # plt.plot(p_dp.cpu())
+    # plt.legend(['gt', 'torch.linalg.lstsq',
+    #              'torch.linalg.inv', 'torch.linalg.pinv', 'torch.linalg.solve',
+    #              'dp'])
     plt.legend(['gt', 'torch.linalg.lstsq',
-                'torch.linalg.inv', 'torch.linalg.pinv'])
+                 'torch.linalg.inv', 'torch.linalg.pinv', 'torch.linalg.solve'])
+                 
     plt.title(text)
-    plt.savefig(f'imgs/{i}.png')
+    plt.savefig(f'imgs/{dtype}-{i}.png')
     plt.close()
 
 
