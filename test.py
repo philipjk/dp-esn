@@ -49,7 +49,7 @@ def make_readouts(sequences: list,
     for sequence in sequences:
         x = torch.zeros((Nx, 1), dtype=dtype).to(DEVICE)
         fake_input = torch.tensor((1,), dtype=dtype).to(DEVICE)
-        for t, ut in enumerate(sequence):
+        for _, ut in enumerate(sequence):
             leak = (1-alpha)*x
             in_and_bias = torch.cat((ut.view((1,)), fake_input))
             update = alpha*torch.tanh((Win@in_and_bias).view(Nx,1)+ Ws@x)
