@@ -1,0 +1,13 @@
+name: dp-esn
+channels:
+  - defaults
+dependencies:
+  - pytorch
+  - matplotlib
+  - opacus
+  - torchvision
+  - cudatoolkit=11.3
+  - torchaudio
+  - tqdm
+  - scikit-learn
+  - pandas
