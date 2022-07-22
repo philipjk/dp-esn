@@ -16,8 +16,8 @@ dtype = torch.float64
 DEVICE = torch.device('cpu')
 
 sequence_points =  2000
-sequences = 100
-wave_frequency = torch.tensor(2, dtype=dtype)
+sequences = 50
+wave_frequency = torch.tensor(3, dtype=dtype)
 start = torch.tensor(0.) 
 finish = 1*np.pi
 exes = torch.arange(start, finish - 1e-6, step=np.pi/sequence_points, dtype=dtype).to(DEVICE)
@@ -46,13 +46,15 @@ def make_readouts(sequences: list,
                   Win: torch.tensor,
                   Ws: torch.tensor):
     readouts = []
+    scaler = torch.tensor(1/np.sqrt(Nx)).to(DEVICE)
     for sequence in sequences:
         x = torch.zeros((Nx, 1), dtype=dtype).to(DEVICE)
         fake_input = torch.tensor((1,), dtype=dtype).to(DEVICE)
         for _, ut in enumerate(sequence):
             leak = (1-alpha)*x
             in_and_bias = torch.cat((ut.view((1,)), fake_input))
-            update = alpha*torch.tanh((Win@in_and_bias).view(Nx,1)+ Ws@x)
+            update = alpha*torch.tanh((Win@in_and_bias).view(Nx,1) +
+                                       scaler*Ws@x)
             x = leak + update
             readouts.append(x)
     X = torch.cat(readouts, 1)
@@ -60,7 +62,7 @@ def make_readouts(sequences: list,
 
 
 
-nx_range =  [50]# [700, 1000, 1200, 1500, 1700, 1900, 2100]
+nx_range =  [200]# [700, 1000, 1200, 1500, 1700, 1900, 2100]
 alpha_range = [0.5] # [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9] 
 spars_range = [0.3] # alpha_range
 sr_range = [0.9, 0.99] # alpha_range
@@ -146,7 +148,7 @@ for i, params in enumerate(grid):
     plt.figure()
     plt.plot(uy[tryout].cpu(), 'x')
     plt.plot(p.cpu())
-    # plt.plot(p_.cpu())
+    plt.plot(p_.cpu())
     plt.plot(pp.cpu())
     plt.plot(p_lin.cpu())
     # plt.plot(p_dp.cpu())
